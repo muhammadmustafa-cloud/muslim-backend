@@ -1,0 +1,57 @@
+import mongoose from 'mongoose';
+
+const supplierSchema = new mongoose.Schema(
+  {
+    name: {
+      type: String,
+      required: [true, 'Supplier name is required'],
+      trim: true,
+      maxlength: [200, 'Name cannot be more than 200 characters']
+    },
+    address: {
+      type: String,
+      required: [true, 'Address is required'],
+      trim: true,
+      maxlength: [500, 'Address cannot be more than 500 characters']
+    },
+    phone: {
+      type: String,
+      trim: true,
+      default: undefined,
+      validate: {
+        validator: function(v) {
+          // Only validate if phone is provided and not empty
+          return !v || /^[0-9]{10,15}$/.test(v);
+        },
+        message: 'Please provide a valid phone number'
+      }
+    },
+    isActive: {
+      type: Boolean,
+      default: true
+    },
+    createdBy: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'User',
+      required: true
+    },
+    updatedBy: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'User'
+    }
+  },
+  {
+    timestamps: true,
+    toJSON: { virtuals: true },
+    toObject: { virtuals: true }
+  }
+);
+
+// Indexes
+supplierSchema.index({ name: 1 });
+supplierSchema.index({ phone: 1 });
+supplierSchema.index({ isActive: 1 });
+supplierSchema.index({ createdAt: -1 });
+
+export default mongoose.model('Supplier', supplierSchema);
+
