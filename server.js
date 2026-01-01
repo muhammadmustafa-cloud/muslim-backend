@@ -35,8 +35,8 @@ app.use(compression());
 // CORS configuration
 app.use(cors({
   // origin: process.env.CORS_ORIGIN || 'http://localhost:5173',
-  origin: process.env.CORS_ORIGIN || 'https://muslim-frontend.vercel.app/',
-  credentials: true
+  origin: 'https://muslim-frontend.vercel.app/',
+ 
 }));
 
 // Body parsing middleware
