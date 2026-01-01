@@ -33,11 +33,7 @@ app.use(helmet());
 app.use(compression());
 
 // CORS configuration
-app.use(cors({
-  // origin: process.env.CORS_ORIGIN || 'http://localhost:5173',
-  origin: 'https://muslim-frontend.vercel.app/',
- 
-}));
+app.use(cors());
 
 // Body parsing middleware
 app.use(express.json({ limit: '10mb' }));
