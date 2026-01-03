@@ -18,6 +18,8 @@ import mazdoorRoutes from './src/routes/mazdoor.routes.js';
 import accountRoutes from './src/routes/account.routes.js';
 import paymentRoutes from './src/routes/payment.routes.js';
 import dailyCashMemoRoutes from './src/routes/dailyCashMemo.routes.js';
+import labourRateRoutes from './src/routes/labourRate.routes.js';
+import labourExpenseRoutes from './src/routes/labourExpense.routes.js';
 
 // Import middleware
 import { errorHandler } from './src/middleware/error.middleware.js';
@@ -66,6 +68,8 @@ app.use('/api/mazdoors', mazdoorRoutes);
 app.use('/api/accounts', accountRoutes);
 app.use('/api/payments', paymentRoutes);
 app.use('/api/daily-cash-memos', dailyCashMemoRoutes);
+app.use('/api/labour-rates', labourRateRoutes);
+app.use('/api/labour-expenses', labourExpenseRoutes);
 
 // Error handling middleware (must be last)
 app.use(notFound);

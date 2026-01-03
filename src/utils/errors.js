@@ -34,6 +34,13 @@ export class UnauthorizedError extends AppError {
   }
 }
 
+export class BadRequestError extends AppError {
+  constructor(message = 'Bad request') {
+    super(message, 400);
+    this.name = 'BadRequestError';
+  }
+}
+
 export class ForbiddenError extends AppError {
   constructor(message = 'Access forbidden') {
     super(message, 403);
