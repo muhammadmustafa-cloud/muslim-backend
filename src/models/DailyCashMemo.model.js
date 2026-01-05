@@ -20,6 +20,10 @@ const cashEntrySchema = new mongoose.Schema({
   image: {
     type: String,
     trim: true
+  },
+  createdAt: {
+    type: Date,
+    default: Date.now
   }
 }, { _id: true });
 

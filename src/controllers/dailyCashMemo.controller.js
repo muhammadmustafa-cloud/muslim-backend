@@ -62,10 +62,6 @@ export const getDailyCashMemo = async (req, res, next) => {
 export const getDailyCashMemoByDate = async (req, res, next) => {
   try {
     const { date } = req.params;
-    const page = parseInt(req.query.page) || 1;
-    const limit = parseInt(req.query.limit) || 20;
-    const skip = (page - 1) * limit;
-    const entryType = req.query.entryType; // 'credit' or 'debit'
 
     const targetDate = new Date(date);
     targetDate.setHours(0, 0, 0, 0);
@@ -75,7 +71,9 @@ export const getDailyCashMemoByDate = async (req, res, next) => {
     // First, get the memo if it exists
     let memo = await DailyCashMemo.findOne({
       date: { $gte: targetDate, $lte: endDate }
-    });
+    })
+      .populate('createdBy', 'name email')
+      .populate('updatedBy', 'name email');
 
     // If no memo exists, return a default one
     if (!memo) {
@@ -92,69 +90,14 @@ export const getDailyCashMemoByDate = async (req, res, next) => {
       }, 'No memo found for this date');
     }
 
-    // Get paginated entries if entryType is specified
-    let entries = [];
-    let total = 0;
-    
-    if (entryType === 'credit' || entryType === 'debit') {
-      const field = `${entryType}Entries`;
-      total = memo[field].length;
-      
-      // Get paginated entries
-      const result = await DailyCashMemo.aggregate([
-        { $match: { _id: memo._id } },
-        { $project: {
-          [field]: { $slice: [`$${field}`, skip, limit] },
-          total: { $size: `$${field}` }
-        }}
-      ]);
-      
-      if (result.length > 0) {
-        entries = result[0][field];
-        total = result[0].total;
-      }
-      
-      return sendPaginated(res, { [field]: entries }, { 
-        page, 
-        limit, 
-        total 
-      }, 'Entries retrieved successfully');
-    }
+    // Sort entries by createdAt in descending order (latest first)
+    const sortedMemo = {
+      ...memo.toObject(),
+      creditEntries: memo.creditEntries.sort((a, b) => new Date(b.createdAt || b._id.getTimestamp()) - new Date(a.createdAt || a._id.getTimestamp())),
+      debitEntries: memo.debitEntries.sort((a, b) => new Date(b.createdAt || b._id.getTimestamp()) - new Date(a.createdAt || a._id.getTimestamp()))
+    };
 
-    // If no entryType is specified, return the full memo with limited entries
-    const result = await DailyCashMemo.aggregate([
-      { $match: { _id: memo._id } },
-      { $project: {
-        creditEntries: { $slice: ["$creditEntries", 0, limit] },
-        debitEntries: { $slice: ["$debitEntries", 0, limit] },
-        creditTotal: { $size: "$creditEntries" },
-        debitTotal: { $size: "$debitEntries" },
-        date: 1,
-        notes: 1,
-        previousBalance: 1,
-        createdAt: 1,
-        updatedAt: 1,
-        createdBy: 1,
-        updatedBy: 1
-      }}
-    ]);
-
-    if (result.length === 0) {
-      throw new NotFoundError('Daily cash memo');
-    }
-
-    const populatedMemo = await DailyCashMemo.populate(result[0], [
-      { path: 'createdBy', select: 'name email' },
-      { path: 'updatedBy', select: 'name email' }
-    ]);
-
-    sendSuccess(res, { 
-      memo: {
-        ...populatedMemo,
-        creditTotal: result[0].creditTotal,
-        debitTotal: result[0].debitTotal
-      } 
-    }, 'Daily cash memo retrieved successfully');
+    sendSuccess(res, { memo: sortedMemo }, 'Daily cash memo retrieved successfully');
   } catch (error) {
     next(error);
   }
