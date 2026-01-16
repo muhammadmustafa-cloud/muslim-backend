@@ -4,14 +4,16 @@ import {
   getCustomer,
   createCustomer,
   updateCustomer,
-  deleteCustomer
+  deleteCustomer,
+  getCustomerTransactionHistory
 } from '../controllers/customer.controller.js';
 import { authenticate } from '../middleware/auth.middleware.js';
 import { validate } from '../middleware/validate.middleware.js';
 import {
   createCustomerValidator,
   updateCustomerValidator,
-  customerIdValidator
+  customerIdValidator,
+  customerTransactionIdValidator
 } from '../validators/customer.validator.js';
 
 const router = express.Router();
@@ -29,6 +31,10 @@ router
   .get(customerIdValidator, validate, getCustomer)
   .put(updateCustomerValidator, validate, updateCustomer)
   .delete(customerIdValidator, validate, deleteCustomer);
+
+router
+  .route('/:customerId/transactions')
+  .get(customerTransactionIdValidator, validate, getCustomerTransactionHistory);
 
 export default router;
 

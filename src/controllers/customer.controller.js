@@ -1,4 +1,6 @@
 import Customer from '../models/Customer.model.js';
+import DailyCashMemo from '../models/DailyCashMemo.model.js';
+import Payment from '../models/Payment.model.js';
 import { sendSuccess, sendPaginated } from '../utils/response.js';
 import { NotFoundError } from '../utils/errors.js';
 
@@ -116,6 +118,81 @@ export const deleteCustomer = async (req, res, next) => {
     await customer.save();
 
     sendSuccess(res, null, 'Customer deleted successfully');
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * Get customer transaction history
+ */
+export const getCustomerTransactionHistory = async (req, res, next) => {
+  try {
+    const { customerId } = req.params;
+    const page = parseInt(req.query.page) || 1;
+    const limit = parseInt(req.query.limit) || 20;
+    const skip = (page - 1) * limit;
+
+    // Check if customer exists
+    const customer = await Customer.findById(customerId);
+    if (!customer) {
+      throw new NotFoundError('Customer');
+    }
+
+    // Get all transactions related to this customer
+    const transactions = [];
+
+    // 1. Get credit entries from Daily Cash Memo
+    const creditMemos = await DailyCashMemo.find({
+      'creditEntries.customer': customerId
+    }).populate('creditEntries.customer');
+
+    creditMemos.forEach(memo => {
+      memo.creditEntries.forEach(entry => {
+        if (entry.customer && entry.customer._id.toString() === customerId) {
+          transactions.push({
+            date: entry.createdAt || memo.date,
+            type: 'credit',
+            description: entry.description || entry.name,
+            amount: entry.amount,
+            paymentMethod: entry.paymentMethod,
+            reference: entry.paymentReference,
+            source: 'Daily Cash Memo',
+            customer: entry.customer, // Add customer object
+            memoId: memo._id,
+            entryId: entry._id
+          });
+        }
+      });
+    });
+
+    // 2. Get payments where customer is the receiver
+    const payments = await Payment.find({
+      customer: customerId
+    }).populate('customer');
+
+    payments.forEach(payment => {
+      transactions.push({
+        date: payment.createdAt,
+        type: payment.type === 'receipt' ? 'credit' : 'debit',
+        description: payment.description || payment.receivedFrom || payment.paidTo,
+        amount: payment.amount,
+        paymentMethod: payment.paymentMethod,
+        reference: payment._id,
+        source: 'Payment',
+        customer: payment.customer, // Add customer object
+        paymentId: payment._id
+      });
+    });
+
+    // Sort transactions by date (newest first)
+    transactions.sort((a, b) => new Date(b.date) - new Date(a.date));
+
+    // Apply pagination
+    const paginatedTransactions = transactions.slice(skip, skip + limit);
+    const total = transactions.length;
+
+    sendPaginated(res, paginatedTransactions, { page, limit, total }, 'Customer transaction history retrieved successfully');
   } catch (error) {
     next(error);
   }

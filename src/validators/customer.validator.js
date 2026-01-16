@@ -64,3 +64,8 @@ export const customerIdValidator = [
     .isMongoId().withMessage('Invalid customer ID')
 ];
 
+export const customerTransactionIdValidator = [
+  param('customerId')
+    .isMongoId().withMessage('Invalid customer ID')
+];
+

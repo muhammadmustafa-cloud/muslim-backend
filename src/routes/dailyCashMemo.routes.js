@@ -6,7 +6,11 @@ import {
   getPreviousBalance,
   createDailyCashMemo,
   updateDailyCashMemo,
-  deleteDailyCashMemo
+  deleteDailyCashMemo,
+  addCreditEntry,
+  addDebitEntry,
+  getAccounts,
+  postDailyCashMemo
 } from '../controllers/dailyCashMemo.controller.js';
 import { authenticate } from '../middleware/auth.middleware.js';
 import { validate } from '../middleware/validate.middleware.js';
@@ -23,6 +27,8 @@ router.use(authenticate);
 
 router.get('/previous-balance', getPreviousBalance);
 
+router.get('/accounts', getAccounts);
+
 router
   .route('/')
   .get(getDailyCashMemos)
@@ -37,6 +43,11 @@ router
   .get(dailyCashMemoIdValidator, validate, getDailyCashMemo)
   .put(updateDailyCashMemoValidator, validate, updateDailyCashMemo)
   .delete(dailyCashMemoIdValidator, validate, deleteDailyCashMemo);
+
+// New routes for adding entries
+router.post('/:id/credit', addCreditEntry);
+router.post('/:id/debit', addDebitEntry);
+router.post('/:id/post', postDailyCashMemo);
 
 export default router;
 

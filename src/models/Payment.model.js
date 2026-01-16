@@ -4,7 +4,7 @@ const paymentSchema = new mongoose.Schema(
   {
     voucherNumber: {
       type: String,
-      required: true,
+      // Not required: it is auto-generated before validation
       trim: true,
       uppercase: true
     },
@@ -127,8 +127,8 @@ paymentSchema.index({ status: 1 });
 paymentSchema.index({ createdBy: 1 });
 paymentSchema.index({ createdAt: -1 });
 
-// Pre-save middleware to generate voucher number if not provided
-paymentSchema.pre('save', async function(next) {
+// Generate voucher number before validation so required checks don't fail
+paymentSchema.pre('validate', async function(next) {
   if (!this.voucherNumber && this.isNew) {
     try {
       const Payment = mongoose.model('Payment');

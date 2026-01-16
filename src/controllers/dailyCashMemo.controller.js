@@ -1,6 +1,10 @@
 import DailyCashMemo from '../models/DailyCashMemo.model.js';
+import Payment from '../models/Payment.model.js';
+import Expense from '../models/Expense.model.js';
+import Account from '../models/Account.model.js';
 import { sendSuccess, sendPaginated } from '../utils/response.js';
 import { NotFoundError, ValidationError } from '../utils/errors.js';
+import { ENTRY_TYPES } from '../utils/constants.js';
 
 /**
  * Get all daily cash memos with pagination
@@ -27,7 +31,11 @@ export const getDailyCashMemos = async (req, res, next) => {
       .skip(skip)
       .limit(limit)
       .populate('createdBy', 'name email')
-      .populate('updatedBy', 'name email');
+      .populate('updatedBy', 'name email')
+      .populate('creditEntries.account', 'name code')
+      .populate('creditEntries.customer', 'name')
+      .populate('debitEntries.mazdoor', 'name')
+      .populate('debitEntries.supplier', 'name');
 
     const total = await DailyCashMemo.countDocuments(query);
 
@@ -44,7 +52,11 @@ export const getDailyCashMemo = async (req, res, next) => {
   try {
     const memo = await DailyCashMemo.findById(req.params.id)
       .populate('createdBy', 'name email')
-      .populate('updatedBy', 'name email');
+      .populate('updatedBy', 'name email')
+      .populate('creditEntries.account', 'name code')
+      .populate('creditEntries.customer', 'name')
+      .populate('debitEntries.mazdoor', 'name')
+      .populate('debitEntries.supplier', 'name');
 
     if (!memo) {
       throw new NotFoundError('Daily cash memo');
@@ -73,7 +85,11 @@ export const getDailyCashMemoByDate = async (req, res, next) => {
       date: { $gte: targetDate, $lte: endDate }
     })
       .populate('createdBy', 'name email')
-      .populate('updatedBy', 'name email');
+      .populate('updatedBy', 'name email')
+      .populate('creditEntries.account', 'name code')
+      .populate('creditEntries.customer', 'name')
+      .populate('debitEntries.mazdoor', 'name')
+      .populate('debitEntries.supplier', 'name');
 
     // If no memo exists, return a default one
     if (!memo) {
@@ -203,6 +219,250 @@ export const deleteDailyCashMemo = async (req, res, next) => {
     await memo.deleteOne();
 
     sendSuccess(res, null, 'Daily cash memo deleted successfully');
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * Add credit entry to daily cash memo
+ */
+export const addCreditEntry = async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    const { name, description, amount, account, customer, paymentMethod = 'cash' } = req.body;
+
+    // Validate required fields
+    if (!name || !amount || !account) {
+      throw new ValidationError('Name, amount, and account are required for credit entries');
+    }
+
+    // Find or create daily cash memo
+    const targetDate = new Date();
+    targetDate.setHours(0, 0, 0, 0);
+    
+    let memo = await DailyCashMemo.findOne({
+      date: { $gte: targetDate, $lte: new Date(targetDate.getTime() + 24 * 60 * 60 * 1000 - 1) }
+    });
+
+    if (!memo) {
+      // Create new memo for today
+      const previousBalance = await getPreviousDayClosingBalance(targetDate);
+      memo = await DailyCashMemo.create({
+        date: targetDate,
+        openingBalance: previousBalance,
+        createdBy: req.user.id
+      });
+    }
+
+    // Create credit entry
+    const creditEntry = {
+      name,
+      description: description || '',
+      amount: parseFloat(amount),
+      account,
+      customer: customer || null,
+      paymentMethod,
+      entryType: ENTRY_TYPES.CREDIT,
+      createdAt: new Date()
+    };
+
+    // Create payment record for audit trail
+    const payment = await Payment.create({
+      type: 'receipt',
+      date: new Date(),
+      description: `Credit entry: ${name}`,
+      amount: parseFloat(amount),
+      paymentMethod,
+      toAccount: account,
+      customer: customer || null,
+      receivedFrom: name,
+      status: 'posted',
+      createdBy: req.user.id
+    });
+
+    creditEntry.paymentReference = payment._id;
+
+    // Add to memo
+    memo.creditEntries.push(creditEntry);
+    memo.updatedBy = req.user.id;
+    
+    // Save and populate in one operation
+    await memo.save();
+    await memo.populate([
+      { path: 'creditEntries.account', select: 'name code' },
+      { path: 'creditEntries.customer', select: 'name' },
+      { path: 'createdBy', select: 'name email' }
+    ]);
+
+    sendSuccess(res, { memo, entry: creditEntry }, 'Credit entry added successfully', 201);
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * Add debit entry to daily cash memo
+ */
+export const addDebitEntry = async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    const { name, description, amount, category, mazdoor, supplier, paymentMethod = 'cash' } = req.body;
+
+    // Validate required fields
+    if (!name || !amount || !category) {
+      throw new ValidationError('Name, amount, and category are required for debit entries');
+    }
+
+    // Find or create daily cash memo
+    const targetDate = new Date();
+    targetDate.setHours(0, 0, 0, 0);
+    
+    let memo = await DailyCashMemo.findOne({
+      date: { $gte: targetDate, $lte: new Date(targetDate.getTime() + 24 * 60 * 60 * 1000 - 1) }
+    });
+
+    if (!memo) {
+      // Create new memo for today
+      const previousBalance = await getPreviousDayClosingBalance(targetDate);
+      memo = await DailyCashMemo.create({
+        date: targetDate,
+        openingBalance: previousBalance,
+        createdBy: req.user.id
+      });
+    }
+
+    // Create debit entry
+    const debitEntry = {
+      name,
+      description: description || '',
+      amount: parseFloat(amount),
+      category,
+      mazdoor: mazdoor || null,
+      supplier: supplier || null,
+      paymentMethod,
+      entryType: ENTRY_TYPES.DEBIT,
+      createdAt: new Date()
+    };
+
+    // Get default cash account for payments
+    const cashAccount = await Account.findOne({ isCashAccount: true });
+    if (!cashAccount) {
+      throw new ValidationError('No cash account found. Please set up a cash account first.');
+    }
+
+    // Create payment record
+    const payment = await Payment.create({
+      type: 'payment',
+      date: new Date(),
+      description: `Debit entry: ${name}`,
+      amount: parseFloat(amount),
+      paymentMethod,
+      fromAccount: cashAccount._id,
+      mazdoor: mazdoor || null,
+      supplier: supplier || null,
+      category,
+      paidTo: name,
+      status: 'posted',
+      createdBy: req.user.id
+    });
+
+    debitEntry.paymentReference = payment._id;
+
+    // Create expense record for mazdoor payments or general expenses
+    if (category === 'mazdoor' || ['electricity', 'rent', 'transport', 'maintenance', 'other'].includes(category)) {
+      console.log('Creating expense for category:', category, 'with amount:', amount);
+      
+      const expense = await Expense.create({
+        category,
+        description: description || `Debit entry: ${name}`, // Ensure description is never empty
+        amount: parseFloat(amount),
+        date: new Date(),
+        paymentMethod,
+        mazdoor: mazdoor || null,
+        supplier: supplier || null,
+        createdBy: req.user.id
+      });
+
+      console.log('Expense created with ID:', expense._id);
+      debitEntry.expenseReference = expense._id;
+    } else {
+      console.log('Not creating expense for category:', category);
+    }
+
+    // Add to memo
+    memo.debitEntries.push(debitEntry);
+    memo.updatedBy = req.user.id;
+    
+    // Save and populate in one operation
+    await memo.save();
+    await memo.populate([
+      { path: 'debitEntries.mazdoor', select: 'name' },
+      { path: 'debitEntries.supplier', select: 'name' },
+      { path: 'createdBy', select: 'name email' }
+    ]);
+
+    sendSuccess(res, { memo, entry: debitEntry }, 'Debit entry added successfully', 201);
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * Helper function to get previous day's closing balance
+ */
+async function getPreviousDayClosingBalance(currentDate) {
+  const previousDate = new Date(currentDate);
+  previousDate.setDate(previousDate.getDate() - 1);
+  previousDate.setHours(23, 59, 59, 999);
+
+  const previousMemo = await DailyCashMemo.findOne({
+    date: { $lte: previousDate }
+  }).sort({ date: -1 }).limit(1);
+
+  return previousMemo?.closingBalance || 0;
+}
+
+/**
+ * Get accounts for dropdown
+ */
+export const getAccounts = async (req, res, next) => {
+  try {
+    const accounts = await Account.find({ isActive: true })
+      .select('name code type isCashAccount isBankAccount')
+      .sort({ code: 1 });
+
+    sendSuccess(res, { accounts }, 'Accounts retrieved successfully');
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * Post daily cash memo (finalize for the day)
+ */
+export const postDailyCashMemo = async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    
+    const memo = await DailyCashMemo.findById(id);
+    if (!memo) {
+      throw new NotFoundError('Daily cash memo');
+    }
+
+    if (memo.status === 'posted') {
+      throw new ValidationError('Daily cash memo is already posted');
+    }
+
+    memo.status = 'posted';
+    memo.postedAt = new Date();
+    memo.postedBy = req.user.id;
+    memo.updatedBy = req.user.id;
+
+    await memo.save();
+    await memo.populate('postedBy', 'name email');
+
+    sendSuccess(res, { memo }, 'Daily cash memo posted successfully');
   } catch (error) {
     next(error);
   }

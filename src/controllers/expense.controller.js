@@ -30,6 +30,7 @@ export const getExpenses = async (req, res, next) => {
     }
 
     // Get expenses
+    console.log('Fetching expenses with query:', query);
     const expenses = await Expense.find(query)
       .sort({ date: -1, createdAt: -1 })
       .skip(skip)
@@ -39,6 +40,7 @@ export const getExpenses = async (req, res, next) => {
       .populate('createdBy', 'name email')
       .populate('updatedBy', 'name email');
 
+    console.log('Found expenses:', expenses.length, 'for query:', query);
     const total = await Expense.countDocuments(query);
 
     // Calculate total amount
