@@ -173,10 +173,43 @@ dailyCashMemoSchema.pre('save', function(next) {
   next();
 });
 
-// Indexes
+// Indexes for performance optimization
 dailyCashMemoSchema.index({ date: -1 });
 dailyCashMemoSchema.index({ createdAt: -1 });
 dailyCashMemoSchema.index({ createdBy: 1 });
+dailyCashMemoSchema.index({ status: 1 });
+dailyCashMemoSchema.index({ 'creditEntries.customer': 1 });
+dailyCashMemoSchema.index({ 'debitEntries.supplier': 1 });
+dailyCashMemoSchema.index({ 'creditEntries.account': 1 });
+dailyCashMemoSchema.index({ 'debitEntries.category': 1 });
+dailyCashMemoSchema.index({ 'creditEntries.amount': 1 });
+dailyCashMemoSchema.index({ 'debitEntries.amount': 1 });
+dailyCashMemoSchema.index({ 'creditEntries.createdAt': -1 });
+dailyCashMemoSchema.index({ 'debitEntries.createdAt': -1 });
+dailyCashMemoSchema.index({ 'creditEntries.entryType': 1 });
+dailyCashMemoSchema.index({ 'debitEntries.entryType': 1 });
+dailyCashMemoSchema.index({ 'creditEntries.paymentMethod': 1 });
+dailyCashMemoSchema.index({ 'debitEntries.paymentMethod': 1 });
+
+// Compound indexes for common queries
+dailyCashMemoSchema.index({ 
+  'creditEntries.customer': 1, 
+  date: -1 
+});
+dailyCashMemoSchema.index({ 
+  'debitEntries.supplier': 1, 
+  date: -1 
+});
+dailyCashMemoSchema.index({ 
+  'creditEntries.customer': 1, 
+  'creditEntries.entryType': 1, 
+  date: -1 
+});
+dailyCashMemoSchema.index({ 
+  'debitEntries.supplier': 1, 
+  'debitEntries.entryType': 1, 
+  date: -1 
+});
 
 export default mongoose.model('DailyCashMemo', dailyCashMemoSchema);
 

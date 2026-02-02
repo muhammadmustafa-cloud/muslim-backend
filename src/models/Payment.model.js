@@ -113,7 +113,7 @@ const paymentSchema = new mongoose.Schema(
   }
 );
 
-// Indexes
+// Indexes for performance optimization
 paymentSchema.index({ voucherNumber: 1 });
 paymentSchema.index({ type: 1 });
 paymentSchema.index({ date: -1 });
@@ -126,6 +126,32 @@ paymentSchema.index({ category: 1 });
 paymentSchema.index({ status: 1 });
 paymentSchema.index({ createdBy: 1 });
 paymentSchema.index({ createdAt: -1 });
+paymentSchema.index({ amount: 1 });
+paymentSchema.index({ paymentMethod: 1 });
+
+// Compound indexes for transaction history queries
+paymentSchema.index({ 
+  customer: 1, 
+  type: 1, 
+  date: -1 
+});
+paymentSchema.index({ 
+  supplier: 1, 
+  type: 1, 
+  date: -1 
+});
+paymentSchema.index({ 
+  customer: 1, 
+  date: -1 
+});
+paymentSchema.index({ 
+  supplier: 1, 
+  date: -1 
+});
+paymentSchema.index({ 
+  type: 1, 
+  date: -1 
+});
 
 // Generate voucher number before validation so required checks don't fail
 paymentSchema.pre('validate', async function(next) {

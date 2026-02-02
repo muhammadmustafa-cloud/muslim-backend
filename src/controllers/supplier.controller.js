@@ -1,3 +1,4 @@
+import mongoose from 'mongoose'
 import Supplier from '../models/Supplier.model.js';
 import DailyCashMemo from '../models/DailyCashMemo.model.js';
 import Payment from '../models/Payment.model.js';
@@ -125,14 +126,25 @@ export const deleteSupplier = async (req, res, next) => {
 };
 
 /**
- * Get supplier transaction history
+ * Get supplier transaction history with server-side pagination and advanced filtering
  */
 export const getSupplierTransactionHistory = async (req, res, next) => {
   try {
     const { supplierId } = req.params;
-    const page = parseInt(req.query.page) || 1;
-    const limit = parseInt(req.query.limit) || 20;
-    const skip = (page - 1) * limit;
+    const {
+      page = 1,
+      limit = 20,
+      startDate,
+      endDate,
+      transactionType,
+      source,
+      minAmount,
+      maxAmount,
+      sortBy = 'date',
+      sortOrder = 'desc'
+    } = req.query;
+
+    const skip = (parseInt(page) - 1) * parseInt(limit);
 
     // Check if supplier exists
     const supplier = await Supplier.findById(supplierId);
@@ -140,83 +152,170 @@ export const getSupplierTransactionHistory = async (req, res, next) => {
       throw new NotFoundError('Supplier');
     }
 
-    // Get all transactions related to this supplier
-    const transactions = [];
+    // Build date filter
+    const dateFilter = {};
+    if (startDate || endDate) {
+      dateFilter.$gte = startDate ? new Date(startDate) : new Date('1900-01-01');
+      dateFilter.$lte = endDate ? new Date(endDate + 'T23:59:59.999Z') : new Date();
+    }
 
-    // 1. Get debit entries from Daily Cash Memo
-    const debitMemos = await DailyCashMemo.find({
-      'debitEntries.supplier': supplierId
-    }).populate('debitEntries.supplier');
+    // Build amount filter
+    const amountFilter = {};
+    if (minAmount) amountFilter.$gte = parseFloat(minAmount);
+    if (maxAmount) amountFilter.$lte = parseFloat(maxAmount);
 
-    debitMemos.forEach(memo => {
-      memo.debitEntries.forEach(entry => {
-        if (entry.supplier && entry.supplier._id.toString() === supplierId) {
-          transactions.push({
-            date: entry.createdAt || memo.date,
-            type: 'debit',
-            description: entry.description || entry.name,
-            amount: entry.amount,
-            paymentMethod: entry.paymentMethod,
-            reference: entry.paymentReference,
-            source: 'Daily Cash Memo',
-            category: entry.category,
-            supplier: entry.supplier, // Add supplier object
-            memoId: memo._id,
-            entryId: entry._id
-          });
+    // Aggregation pipeline for efficient server-side pagination
+    const transactions = await DailyCashMemo.aggregate([
+      {
+        $match: {
+          'debitEntries.supplier': new mongoose.Types.ObjectId(supplierId),
+          ...(startDate || endDate ? {
+            $or: [
+              { date: dateFilter },
+              { 'debitEntries.createdAt': dateFilter }
+            ]
+          } : {})
         }
-      });
-    });
+      },
+      { $unwind: '$debitEntries' },
+      {
+        $match: {
+          'debitEntries.supplier': new mongoose.Types.ObjectId(supplierId),
+          ...(transactionType ? { 'debitEntries.entryType': transactionType } : {}),
+          ...(Object.keys(amountFilter).length > 0 ? { 'debitEntries.amount': amountFilter } : {})
+        }
+      },
+      {
+        $lookup: {
+          from: 'suppliers',
+          localField: 'debitEntries.supplier',
+          foreignField: '_id',
+          as: 'debitEntries.supplier'
+        }
+      },
+      { $unwind: '$debitEntries.supplier' },
+      {
+        $project: {
+          date: { $ifNull: ['$debitEntries.createdAt', '$date'] },
+          type: { $literal: 'debit' },
+          description: { $ifNull: ['$debitEntries.description', '$debitEntries.name'] },
+          amount: '$debitEntries.amount',
+          paymentMethod: '$debitEntries.paymentMethod',
+          reference: '$debitEntries.paymentReference',
+          source: { $literal: 'Daily Cash Memo' },
+          category: '$debitEntries.category',
+          supplier: '$debitEntries.supplier',
+          memoId: '$_id',
+          entryId: '$debitEntries._id',
+          createdAt: '$debitEntries.createdAt'
+        }
+      },
+      {
+        $unionWith: {
+          coll: 'payments',
+          pipeline: [
+            {
+              $match: {
+                supplier: new mongoose.Types.ObjectId(supplierId),
+                ...(startDate || endDate ? { createdAt: dateFilter } : {}),
+                ...(transactionType ? { type: transactionType === 'debit' ? 'payment' : 'receipt' } : {}),
+                ...(Object.keys(amountFilter).length > 0 ? { amount: amountFilter } : {}),
+                ...(source ? { source: source } : {})
+              }
+            },
+            {
+              $lookup: {
+                from: 'suppliers',
+                localField: 'supplier',
+                foreignField: '_id',
+                as: 'supplier'
+              }
+            },
+            { $unwind: '$supplier' },
+            {
+              $project: {
+                date: '$createdAt',
+                type: { $cond: [{ $eq: ['$type', 'payment'] }, 'debit', 'credit'] },
+                description: { $ifNull: ['$description', { $ifNull: ['$paidTo', '$receivedFrom'] }] },
+                amount: '$amount',
+                paymentMethod: '$paymentMethod',
+                reference: '$_id',
+                source: { $ifNull: ['$source', 'Payment'] },
+                supplier: '$supplier',
+                paymentId: '$_id',
+                createdAt: '$createdAt'
+              }
+            }
+          ]
+        }
+      },
+      {
+        $unionWith: {
+          coll: 'expenses',
+          pipeline: [
+            {
+              $match: {
+                supplier: new mongoose.Types.ObjectId(supplierId),
+                ...(startDate || endDate ? { createdAt: dateFilter } : {}),
+                ...(Object.keys(amountFilter).length > 0 ? { amount: amountFilter } : {}),
+                ...(source ? { source: 'Expense' } : {})
+              }
+            },
+            {
+              $lookup: {
+                from: 'suppliers',
+                localField: 'supplier',
+                foreignField: '_id',
+                as: 'supplier'
+              }
+            },
+            { $unwind: '$supplier' },
+            {
+              $project: {
+                date: '$createdAt',
+                type: { $literal: 'debit' },
+                description: '$description',
+                amount: '$amount',
+                paymentMethod: '$paymentMethod',
+                reference: '$_id',
+                source: { $literal: 'Expense' },
+                category: '$category',
+                supplier: '$supplier',
+                expenseId: '$_id',
+                createdAt: '$createdAt'
+              }
+            }
+          ]
+        }
+      },
+      {
+        $match: {
+          ...(Object.keys(source || {}).length > 0 ? source : {})
+        }
+      },
+      {
+        $sort: {
+          [sortBy]: sortOrder === 'desc' ? -1 : 1
+        }
+      },
+      {
+        $facet: {
+          data: [{ $skip: skip }, { $limit: parseInt(limit) }],
+          totalCount: [{ $count: 'count' }]
+        }
+      }
+    ]);
 
-    // 2. Get payments where supplier is the receiver
-    const payments = await Payment.find({
-      supplier: supplierId
-    }).populate('supplier');
+    const paginatedTransactions = transactions[0].data;
+    const total = transactions[0].totalCount[0]?.count || 0;
 
-    payments.forEach(payment => {
-      transactions.push({
-        date: payment.createdAt,
-        type: payment.type === 'payment' ? 'debit' : 'credit',
-        description: payment.description || payment.paidTo || payment.receivedFrom,
-        amount: payment.amount,
-        paymentMethod: payment.paymentMethod,
-        reference: payment._id,
-        source: 'Payment',
-        supplier: payment.supplier, // Add supplier object
-        paymentId: payment._id
-      });
-    });
-
-    // 3. Get expenses where supplier is mentioned
-    const expenses = await Expense.find({
-      supplier: supplierId
-    }).populate('supplier');
-
-    expenses.forEach(expense => {
-      transactions.push({
-        date: expense.createdAt,
-        type: 'debit',
-        description: expense.description,
-        amount: expense.amount,
-        paymentMethod: expense.paymentMethod,
-        reference: expense._id,
-        source: 'Expense',
-        category: expense.category,
-        supplier: expense.supplier, // Add supplier object
-        expenseId: expense._id
-      });
-    });
-
-    // Sort transactions by date (newest first)
-    transactions.sort((a, b) => new Date(b.date) - new Date(a.date));
-
-    // Apply pagination
-    const paginatedTransactions = transactions.slice(skip, skip + limit);
-    const total = transactions.length;
-
-    sendPaginated(res, paginatedTransactions, { page, limit, total }, 'Supplier transaction history retrieved successfully');
+    sendPaginated(res, paginatedTransactions, { 
+      page: parseInt(page), 
+      limit: parseInt(limit), 
+      total,
+      totalPages: Math.ceil(total / parseInt(limit))
+    }, 'Supplier transaction history retrieved successfully');
   } catch (error) {
     next(error);
   }
 };
-
