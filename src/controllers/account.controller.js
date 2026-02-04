@@ -42,6 +42,7 @@ export const getAccounts = async (req, res, next) => {
       .sort({ code: 1, createdAt: -1 })
       .skip(skip)
       .limit(limit)
+      .populate('bank', 'name accountNumber branch')
       .populate('createdBy', 'name email')
       .populate('updatedBy', 'name email');
 
@@ -77,6 +78,7 @@ export const getAccounts = async (req, res, next) => {
 export const getAccount = async (req, res, next) => {
   try {
     const account = await Account.findById(req.params.id)
+      .populate('bank', 'name accountNumber branch accountTitle iban')
       .populate('createdBy', 'name email')
       .populate('updatedBy', 'name email');
 
@@ -110,8 +112,10 @@ export const createAccount = async (req, res, next) => {
       currentBalance: req.body.openingBalance || 0,
       createdBy: req.user.id
     };
+    if (accountData.bank === '') accountData.bank = null;
 
     const account = await Account.create(accountData);
+    await account.populate('bank', 'name accountNumber branch');
     await account.populate('createdBy', 'name email');
 
     sendSuccess(res, { account }, 'Account created successfully', 201);
@@ -139,10 +143,12 @@ export const updateAccount = async (req, res, next) => {
     // Don't allow updating code
     delete req.body.code;
     delete req.body.currentBalance; // Balance is managed by payments
+    if (req.body.bank === '') req.body.bank = null;
 
     Object.assign(account, req.body);
     account.updatedBy = req.user.id;
     await account.save();
+    await account.populate('bank', 'name accountNumber branch');
     await account.populate('updatedBy', 'name email');
 
     sendSuccess(res, { account }, 'Account updated successfully');

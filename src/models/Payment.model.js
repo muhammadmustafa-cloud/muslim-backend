@@ -4,7 +4,7 @@ const paymentSchema = new mongoose.Schema(
   {
     voucherNumber: {
       type: String,
-      required: true,
+      // Not required: it is auto-generated before validation
       trim: true,
       uppercase: true
     },
@@ -96,6 +96,12 @@ const paymentSchema = new mongoose.Schema(
       trim: true,
       maxlength: [1000, 'Notes cannot be more than 1000 characters']
     },
+    source: {
+      type: String,
+      enum: ['manual', 'daily_cash_memo'],
+      default: 'manual',
+      trim: true
+    },
     createdBy: {
       type: mongoose.Schema.Types.ObjectId,
       ref: 'User',
@@ -113,7 +119,7 @@ const paymentSchema = new mongoose.Schema(
   }
 );
 
-// Indexes
+// Indexes for performance optimization
 paymentSchema.index({ voucherNumber: 1 });
 paymentSchema.index({ type: 1 });
 paymentSchema.index({ date: -1 });
@@ -126,9 +132,35 @@ paymentSchema.index({ category: 1 });
 paymentSchema.index({ status: 1 });
 paymentSchema.index({ createdBy: 1 });
 paymentSchema.index({ createdAt: -1 });
+paymentSchema.index({ amount: 1 });
+paymentSchema.index({ paymentMethod: 1 });
 
-// Pre-save middleware to generate voucher number if not provided
-paymentSchema.pre('save', async function(next) {
+// Compound indexes for transaction history queries
+paymentSchema.index({ 
+  customer: 1, 
+  type: 1, 
+  date: -1 
+});
+paymentSchema.index({ 
+  supplier: 1, 
+  type: 1, 
+  date: -1 
+});
+paymentSchema.index({ 
+  customer: 1, 
+  date: -1 
+});
+paymentSchema.index({ 
+  supplier: 1, 
+  date: -1 
+});
+paymentSchema.index({ 
+  type: 1, 
+  date: -1 
+});
+
+// Generate voucher number before validation so required checks don't fail
+paymentSchema.pre('validate', async function(next) {
   if (!this.voucherNumber && this.isNew) {
     try {
       const Payment = mongoose.model('Payment');

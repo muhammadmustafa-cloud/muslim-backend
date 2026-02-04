@@ -16,12 +16,18 @@ export const createItemValidator = [
     .notEmpty().withMessage('Item type is required')
     .isIn(Object.values(ITEM_TYPES)).withMessage('Invalid item type'),
   
+  body('quality')
+    .optional()
+    .trim()
+    .isLength({ max: 200 }).withMessage('Quality cannot be more than 200 characters'),
+  
   body('category')
     .optional()
     .trim(),
   
+  // Allow unit to be omitted; model default will apply
   body('unit')
-    .notEmpty().withMessage('Unit is required')
+    .optional()
     .isIn(Object.values(UNITS)).withMessage('Invalid unit'),
   
   body('description')

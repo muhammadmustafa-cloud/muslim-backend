@@ -2,6 +2,7 @@ import Payment from '../models/Payment.model.js';
 import Account from '../models/Account.model.js';
 import { sendSuccess, sendPaginated } from '../utils/response.js';
 import { NotFoundError } from '../utils/errors.js';
+import { syncPaymentToDailyCashMemo } from '../services/dailyCashMemoSync.service.js';
 
 /**
  * Get all payments/receipts with pagination
@@ -159,6 +160,17 @@ export const createPayment = async (req, res, next) => {
     };
 
     const payment = await Payment.create(paymentData);
+
+    // Sync to Daily Cash Memo so the same transaction appears there and numbers match
+    if (payment.source !== 'daily_cash_memo') {
+      try {
+        await syncPaymentToDailyCashMemo(payment, req.user.id);
+      } catch (syncErr) {
+        console.error('Sync payment to Daily Cash Memo failed:', syncErr);
+        // still return success; payment was created and account updated
+      }
+    }
+
     await payment.populate('fromAccount', 'name code');
     await payment.populate('toAccount', 'name code');
     await payment.populate('mazdoor', 'name phone');

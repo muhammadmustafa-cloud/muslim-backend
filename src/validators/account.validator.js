@@ -24,7 +24,11 @@ export const createAccountValidator = [
   body('isBankAccount')
     .optional()
     .isBoolean().withMessage('isBankAccount must be a boolean'),
-  
+
+  body('bank')
+    .optional()
+    .isMongoId().withMessage('Invalid bank ID'),
+
   body('openingBalance')
     .optional()
     .isFloat({ min: 0 }).withMessage('Opening balance must be a positive number'),
@@ -59,7 +63,11 @@ export const updateAccountValidator = [
     .trim()
     .notEmpty().withMessage('Account name cannot be empty')
     .isLength({ max: 200 }).withMessage('Account name cannot be more than 200 characters'),
-  
+
+  body('bank')
+    .optional()
+    .isMongoId().withMessage('Invalid bank ID'),
+
   body('openingBalance')
     .optional()
     .isFloat({ min: 0 }).withMessage('Opening balance must be a positive number')

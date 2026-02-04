@@ -66,6 +66,12 @@ const expenseSchema = new mongoose.Schema(
     updatedBy: {
       type: mongoose.Schema.Types.ObjectId,
       ref: 'User'
+    },
+    source: {
+      type: String,
+      enum: ['manual', 'daily_cash_memo'],
+      default: 'manual',
+      trim: true
     }
   },
   {
@@ -82,6 +88,23 @@ expenseSchema.index({ mazdoor: 1 });
 expenseSchema.index({ supplier: 1 });
 expenseSchema.index({ createdBy: 1 });
 expenseSchema.index({ createdAt: -1 });
+expenseSchema.index({ amount: 1 });
+expenseSchema.index({ category: 1 });
+expenseSchema.index({ paymentMethod: 1 });
+
+// Compound indexes for transaction history queries
+expenseSchema.index({ 
+  supplier: 1, 
+  date: -1 
+});
+expenseSchema.index({ 
+  supplier: 1, 
+  category: 1, 
+  date: -1 
+});
+expenseSchema.index({ 
+  category: 1, 
+  date: -1 
+});
 
 export default mongoose.model('Expense', expenseSchema);
-

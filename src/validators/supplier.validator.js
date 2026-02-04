@@ -64,3 +64,8 @@ export const supplierIdValidator = [
     .isMongoId().withMessage('Invalid supplier ID')
 ];
 
+export const supplierTransactionIdValidator = [
+  param('supplierId')
+    .isMongoId().withMessage('Invalid supplier ID')
+];
+

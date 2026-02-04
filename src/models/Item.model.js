@@ -25,6 +25,12 @@ const itemSchema = new mongoose.Schema(
       type: String,
       trim: true
     },
+    // Business-requested field for product grading/quality
+    quality: {
+      type: String,
+      trim: true,
+      maxlength: [200, 'Quality cannot be more than 200 characters']
+    },
     unit: {
       type: String,
       enum: Object.values(UNITS),

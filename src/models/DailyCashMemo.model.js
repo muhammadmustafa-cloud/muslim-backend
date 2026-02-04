@@ -1,4 +1,5 @@
 import mongoose from 'mongoose';
+import { ENTRY_TYPES } from '../utils/constants.js';
 
 const cashEntrySchema = new mongoose.Schema({
   name: {
@@ -17,9 +18,64 @@ const cashEntrySchema = new mongoose.Schema({
     required: [true, 'Amount is required'],
     min: [0, 'Amount cannot be negative']
   },
+  // For credit entries - which account receives the money
+  account: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'Account'
+  },
+  // For debit entries - category of expense
+  category: {
+    type: String,
+    enum: ['mazdoor', 'electricity', 'rent', 'transport', 'raw_material', 'maintenance', 'other', 'customer_payment', 'supplier_payment'],
+    trim: true
+  },
+  // For credit entries - receipt type (where money came from)
+  receiptType: {
+    type: String,
+    enum: ['customer_payment', 'sale', 'other_income', 'general'],
+    trim: true
+  },
+  // Reference to mazdoor if entry is related to mazdoor
+  mazdoor: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'Mazdoor'
+  },
+  // Reference to customer if entry is related to customer
+  customer: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'Customer'
+  },
+  // Reference to supplier if entry is related to supplier
+  supplier: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'Supplier'
+  },
+  // Payment method
+  paymentMethod: {
+    type: String,
+    enum: ['cash', 'cheque', 'bank_transfer', 'online'],
+    default: 'cash'
+  },
+  // Supporting document/image
   image: {
     type: String,
     trim: true
+  },
+  // Entry type for audit trail
+  entryType: {
+    type: String,
+    enum: Object.values(ENTRY_TYPES),
+    required: true
+  },
+  // Link to payment if this entry creates a payment record
+  paymentReference: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'Payment'
+  },
+  // Link to expense if this entry creates an expense record
+  expenseReference: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'Expense'
   },
   createdAt: {
     type: Date,
@@ -56,10 +112,30 @@ const dailyCashMemoSchema = new mongoose.Schema(
       type: Number,
       default: 0
     },
+    // Status of the cash memo
+    status: {
+      type: String,
+      enum: ['draft', 'posted', 'closed'],
+      default: 'draft'
+    },
+    // Total cash in hand at start of day
+    openingBalance: {
+      type: Number,
+      default: 0,
+      min: [0, 'Opening balance cannot be negative']
+    },
     notes: {
       type: String,
       trim: true,
       maxlength: [1000, 'Notes cannot be more than 1000 characters']
+    },
+    // Audit trail fields
+    postedAt: {
+      type: Date
+    },
+    postedBy: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'User'
     },
     createdBy: {
       type: mongoose.Schema.Types.ObjectId,
@@ -81,7 +157,7 @@ const dailyCashMemoSchema = new mongoose.Schema(
 // Virtual for total credit
 dailyCashMemoSchema.virtual('totalCredit').get(function() {
   const entriesTotal = this.creditEntries.reduce((sum, entry) => sum + (entry.amount || 0), 0);
-  return this.previousBalance + entriesTotal;
+  return this.openingBalance + entriesTotal;
 });
 
 // Virtual for total debit
@@ -94,13 +170,52 @@ dailyCashMemoSchema.pre('save', function(next) {
   const totalCredit = this.totalCredit;
   const totalDebit = this.totalDebit;
   this.closingBalance = totalCredit - totalDebit;
+  
+  // Set posted timestamp when status changes to posted
+  if (this.isModified('status') && this.status === 'posted' && !this.postedAt) {
+    this.postedAt = new Date();
+  }
+  
   next();
 });
 
-// Indexes
+// Indexes for performance optimization
 dailyCashMemoSchema.index({ date: -1 });
 dailyCashMemoSchema.index({ createdAt: -1 });
 dailyCashMemoSchema.index({ createdBy: 1 });
+dailyCashMemoSchema.index({ status: 1 });
+dailyCashMemoSchema.index({ 'creditEntries.customer': 1 });
+dailyCashMemoSchema.index({ 'debitEntries.supplier': 1 });
+dailyCashMemoSchema.index({ 'creditEntries.account': 1 });
+dailyCashMemoSchema.index({ 'debitEntries.category': 1 });
+dailyCashMemoSchema.index({ 'creditEntries.amount': 1 });
+dailyCashMemoSchema.index({ 'debitEntries.amount': 1 });
+dailyCashMemoSchema.index({ 'creditEntries.createdAt': -1 });
+dailyCashMemoSchema.index({ 'debitEntries.createdAt': -1 });
+dailyCashMemoSchema.index({ 'creditEntries.entryType': 1 });
+dailyCashMemoSchema.index({ 'debitEntries.entryType': 1 });
+dailyCashMemoSchema.index({ 'creditEntries.paymentMethod': 1 });
+dailyCashMemoSchema.index({ 'debitEntries.paymentMethod': 1 });
+
+// Compound indexes for common queries
+dailyCashMemoSchema.index({ 
+  'creditEntries.customer': 1, 
+  date: -1 
+});
+dailyCashMemoSchema.index({ 
+  'debitEntries.supplier': 1, 
+  date: -1 
+});
+dailyCashMemoSchema.index({ 
+  'creditEntries.customer': 1, 
+  'creditEntries.entryType': 1, 
+  date: -1 
+});
+dailyCashMemoSchema.index({ 
+  'debitEntries.supplier': 1, 
+  'debitEntries.entryType': 1, 
+  date: -1 
+});
 
 export default mongoose.model('DailyCashMemo', dailyCashMemoSchema);
 
