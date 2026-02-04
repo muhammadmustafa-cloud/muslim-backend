@@ -4,6 +4,7 @@ import {
   getDailyCashMemo,
   getDailyCashMemoByDate,
   getPreviousBalance,
+  getEntriesReport,
   createDailyCashMemo,
   updateDailyCashMemo,
   deleteDailyCashMemo,
@@ -28,6 +29,8 @@ router.use(authenticate);
 router.get('/previous-balance', getPreviousBalance);
 
 router.get('/accounts', getAccounts);
+
+router.get('/entries', getEntriesReport);
 
 router
   .route('/')

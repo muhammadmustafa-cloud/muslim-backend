@@ -66,6 +66,12 @@ const expenseSchema = new mongoose.Schema(
     updatedBy: {
       type: mongoose.Schema.Types.ObjectId,
       ref: 'User'
+    },
+    source: {
+      type: String,
+      enum: ['manual', 'daily_cash_memo'],
+      default: 'manual',
+      trim: true
     }
   },
   {

@@ -2,9 +2,18 @@ import DailyCashMemo from '../models/DailyCashMemo.model.js';
 import Payment from '../models/Payment.model.js';
 import Expense from '../models/Expense.model.js';
 import Account from '../models/Account.model.js';
+import Mazdoor from '../models/Mazdoor.model.js';
+import Customer from '../models/Customer.model.js';
+import Supplier from '../models/Supplier.model.js';
 import { sendSuccess, sendPaginated } from '../utils/response.js';
 import { NotFoundError, ValidationError } from '../utils/errors.js';
 import { ENTRY_TYPES } from '../utils/constants.js';
+
+// Map Daily Cash Memo paymentMethod to Expense model (Expense uses 'bank' not 'bank_transfer')
+function expensePaymentMethod(pm) {
+  if (pm === 'bank_transfer') return 'bank';
+  return pm || 'cash';
+}
 
 /**
  * Get all daily cash memos with pagination
@@ -230,64 +239,68 @@ export const deleteDailyCashMemo = async (req, res, next) => {
 export const addCreditEntry = async (req, res, next) => {
   try {
     const { id } = req.params;
-    const { name, description, amount, account, customer, paymentMethod = 'cash' } = req.body;
+    const { name, description, amount, account, customer, paymentMethod = 'cash', receiptType } = req.body;
 
     // Validate required fields
     if (!name || !amount || !account) {
       throw new ValidationError('Name, amount, and account are required for credit entries');
     }
+    const amountNum = parseFloat(amount);
+    if (!Number.isFinite(amountNum) || amountNum <= 0) {
+      throw new ValidationError('Amount must be a positive number');
+    }
+    if (receiptType === 'customer_payment' && !customer) {
+      throw new ValidationError('Customer is required when receipt type is Customer Payment');
+    }
 
-    // Find or create daily cash memo
-    const targetDate = new Date();
-    targetDate.setHours(0, 0, 0, 0);
-    
-    let memo = await DailyCashMemo.findOne({
-      date: { $gte: targetDate, $lte: new Date(targetDate.getTime() + 24 * 60 * 60 * 1000 - 1) }
-    });
-
+    // Find memo by ID (from selected date on frontend)
+    let memo = await DailyCashMemo.findById(id);
     if (!memo) {
-      // Create new memo for today
-      const previousBalance = await getPreviousDayClosingBalance(targetDate);
-      memo = await DailyCashMemo.create({
-        date: targetDate,
-        openingBalance: previousBalance,
-        createdBy: req.user.id
-      });
+      throw new NotFoundError('Daily cash memo');
+    }
+    if (memo.status === 'posted') {
+      throw new ValidationError('Cannot add entries to a posted memo');
     }
 
     // Create credit entry
     const creditEntry = {
       name,
       description: description || '',
-      amount: parseFloat(amount),
+      amount: amountNum,
       account,
       customer: customer || null,
       paymentMethod,
+      receiptType: receiptType || null,
       entryType: ENTRY_TYPES.CREDIT,
       createdAt: new Date()
     };
 
-    // Create payment record for audit trail
+    // Create payment record for audit trail (same data as Payments page)
     const payment = await Payment.create({
       type: 'receipt',
       date: new Date(),
       description: `Credit entry: ${name}`,
-      amount: parseFloat(amount),
+      amount: amountNum,
       paymentMethod,
       toAccount: account,
       customer: customer || null,
       receivedFrom: name,
       status: 'posted',
+      source: 'daily_cash_memo',
       createdBy: req.user.id
     });
 
     creditEntry.paymentReference = payment._id;
 
+    // Update customer balance (receipt from customer = they paid us = reduce receivable)
+    if (customer) {
+      await Customer.findByIdAndUpdate(customer, { $inc: { currentBalance: -amountNum } });
+    }
+
     // Add to memo
     memo.creditEntries.push(creditEntry);
     memo.updatedBy = req.user.id;
     
-    // Save and populate in one operation
     await memo.save();
     await memo.populate([
       { path: 'creditEntries.account', select: 'name code' },
@@ -313,30 +326,31 @@ export const addDebitEntry = async (req, res, next) => {
     if (!name || !amount || !category) {
       throw new ValidationError('Name, amount, and category are required for debit entries');
     }
+    const amountNum = parseFloat(amount);
+    if (!Number.isFinite(amountNum) || amountNum <= 0) {
+      throw new ValidationError('Amount must be a positive number');
+    }
+    if (category === 'mazdoor' && !mazdoor) {
+      throw new ValidationError('Mazdoor is required when category is Mazdoor');
+    }
+    if (category === 'supplier_payment' && !supplier) {
+      throw new ValidationError('Supplier is required when category is Supplier Payment');
+    }
 
-    // Find or create daily cash memo
-    const targetDate = new Date();
-    targetDate.setHours(0, 0, 0, 0);
-    
-    let memo = await DailyCashMemo.findOne({
-      date: { $gte: targetDate, $lte: new Date(targetDate.getTime() + 24 * 60 * 60 * 1000 - 1) }
-    });
-
+    // Find memo by ID (from selected date on frontend)
+    let memo = await DailyCashMemo.findById(id);
     if (!memo) {
-      // Create new memo for today
-      const previousBalance = await getPreviousDayClosingBalance(targetDate);
-      memo = await DailyCashMemo.create({
-        date: targetDate,
-        openingBalance: previousBalance,
-        createdBy: req.user.id
-      });
+      throw new NotFoundError('Daily cash memo');
+    }
+    if (memo.status === 'posted') {
+      throw new ValidationError('Cannot add entries to a posted memo');
     }
 
     // Create debit entry
     const debitEntry = {
       name,
       description: description || '',
-      amount: parseFloat(amount),
+      amount: amountNum,
       category,
       mazdoor: mazdoor || null,
       supplier: supplier || null,
@@ -351,12 +365,12 @@ export const addDebitEntry = async (req, res, next) => {
       throw new ValidationError('No cash account found. Please set up a cash account first.');
     }
 
-    // Create payment record
+    // Create payment record (same data as Payments page)
     const payment = await Payment.create({
       type: 'payment',
       date: new Date(),
       description: `Debit entry: ${name}`,
-      amount: parseFloat(amount),
+      amount: amountNum,
       paymentMethod,
       fromAccount: cashAccount._id,
       mazdoor: mazdoor || null,
@@ -364,30 +378,37 @@ export const addDebitEntry = async (req, res, next) => {
       category,
       paidTo: name,
       status: 'posted',
+      source: 'daily_cash_memo',
       createdBy: req.user.id
     });
 
     debitEntry.paymentReference = payment._id;
 
-    // Create expense record for mazdoor payments or general expenses
-    if (category === 'mazdoor' || ['electricity', 'rent', 'transport', 'maintenance', 'other'].includes(category)) {
-      console.log('Creating expense for category:', category, 'with amount:', amount);
-      
+    // Update mazdoor balance (salary paid = we paid them; reduce advance/balance we track)
+    if (category === 'mazdoor' && mazdoor) {
+      await Mazdoor.findByIdAndUpdate(mazdoor, { $inc: { currentBalance: -amountNum } });
+    }
+
+    // Update supplier balance (we paid supplier = reduce what we owe)
+    if ((category === 'supplier_payment' || category === 'raw_material') && supplier) {
+      await Supplier.findByIdAndUpdate(supplier, { $inc: { currentBalance: -amountNum } });
+    }
+
+    // Create expense record for all expense categories (same data as Expenses page)
+    const expenseCategories = ['mazdoor', 'electricity', 'rent', 'transport', 'raw_material', 'maintenance', 'other', 'supplier_payment'];
+    if (expenseCategories.includes(category)) {
       const expense = await Expense.create({
         category,
-        description: description || `Debit entry: ${name}`, // Ensure description is never empty
-        amount: parseFloat(amount),
+        description: description || `Debit entry: ${name}`,
+        amount: amountNum,
         date: new Date(),
-        paymentMethod,
+        paymentMethod: expensePaymentMethod(paymentMethod),
         mazdoor: mazdoor || null,
         supplier: supplier || null,
+        source: 'daily_cash_memo',
         createdBy: req.user.id
       });
-
-      console.log('Expense created with ID:', expense._id);
       debitEntry.expenseReference = expense._id;
-    } else {
-      console.log('Not creating expense for category:', category);
     }
 
     // Add to memo
@@ -403,6 +424,125 @@ export const addDebitEntry = async (req, res, next) => {
     ]);
 
     sendSuccess(res, { memo, entry: debitEntry }, 'Debit entry added successfully', 201);
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * Get entries report (flattened credit/debit) for date range and optional category
+ */
+export const getEntriesReport = async (req, res, next) => {
+  try {
+    const startDate = req.query.startDate;
+    const endDate = req.query.endDate;
+    const category = req.query.category;
+    const mazdoorId = req.query.mazdoorId;   // filter debit entries by specific mazdoor
+    const customerId = req.query.customerId; // filter credit entries by specific customer
+    const supplierId = req.query.supplierId; // filter debit entries by specific supplier
+    const description = (req.query.description || '').trim().toLowerCase(); // filter by description (e.g. "gaari kiraya")
+
+    if (!startDate || !endDate) {
+      throw new ValidationError('startDate and endDate are required (YYYY-MM-DD)');
+    }
+
+    const start = new Date(startDate);
+    start.setHours(0, 0, 0, 0);
+    const end = new Date(endDate);
+    end.setHours(23, 59, 59, 999);
+
+    const memos = await DailyCashMemo.find({
+      date: { $gte: start, $lte: end }
+    })
+      .sort({ date: 1 })
+      .populate('creditEntries.account', 'name code')
+      .populate('creditEntries.customer', 'name')
+      .populate('debitEntries.mazdoor', 'name')
+      .populate('debitEntries.supplier', 'name');
+
+    const entries = [];
+    let totalCredit = 0;
+    let totalDebit = 0;
+
+    const matchDescription = (text) => !description || (text || '').toLowerCase().includes(description);
+    const matchMazdoor = (e) => !mazdoorId || (e.mazdoor?._id?.toString() === mazdoorId || e.mazdoor?.toString() === mazdoorId);
+    const matchCustomer = (e) => !customerId || (e.customer?._id?.toString() === customerId || e.customer?.toString() === customerId);
+    const matchSupplier = (e) => !supplierId || (e.supplier?._id?.toString() === supplierId || e.supplier?.toString() === supplierId);
+
+    for (const memo of memos) {
+      const memoDate = memo.date instanceof Date ? memo.date : new Date(memo.date);
+      const dateStr = memoDate.toISOString().split('T')[0];
+
+      const creditReceiptTypes = ['customer_payment', 'sale', 'other_income', 'general'];
+      if (!category || category === 'credit' || creditReceiptTypes.includes(category)) {
+        for (const e of memo.creditEntries || []) {
+          const includeCredit = !category || category === 'credit' || e.receiptType === category;
+          if (includeCredit && matchCustomer(e) && matchDescription(e.description)) {
+            entries.push({
+              date: dateStr,
+              type: 'credit',
+              name: e.name,
+              description: e.description || '',
+              amount: e.amount,
+              category: e.receiptType || null,
+              receiptType: e.receiptType || null,
+              account: e.account ? `${e.account.code || ''} - ${e.account.name || ''}`.trim() : '',
+              customer: e.customer?.name || '',
+              customerId: e.customer?._id?.toString() || e.customer?.toString() || null,
+              mazdoor: '',
+              supplier: '',
+              paymentMethod: e.paymentMethod || 'cash',
+              memoId: memo._id,
+              entryId: e._id,
+              createdAt: e.createdAt
+            });
+            totalCredit += e.amount || 0;
+          }
+        }
+      }
+
+      if (!category || (category !== 'credit' && !creditReceiptTypes.includes(category))) {
+        for (const e of memo.debitEntries || []) {
+          if (category && e.category !== category) continue;
+          if (!matchMazdoor(e) || !matchSupplier(e) || !matchDescription(e.description)) continue;
+          entries.push({
+            date: dateStr,
+            type: 'debit',
+            name: e.name,
+            description: e.description || '',
+            amount: e.amount,
+            category: e.category || '',
+            account: '',
+            customer: '',
+            mazdoor: e.mazdoor?.name || '',
+            mazdoorId: e.mazdoor?._id?.toString() || e.mazdoor?.toString() || null,
+            supplier: e.supplier?.name || '',
+            supplierId: e.supplier?._id?.toString() || e.supplier?.toString() || null,
+            paymentMethod: e.paymentMethod || 'cash',
+            memoId: memo._id,
+            entryId: e._id,
+            createdAt: e.createdAt
+          });
+          totalDebit += e.amount || 0;
+        }
+      }
+    }
+
+    // Sort by date then by createdAt within date
+    entries.sort((a, b) => {
+      if (a.date !== b.date) return a.date.localeCompare(b.date);
+      return new Date(a.createdAt || 0) - new Date(b.createdAt || 0);
+    });
+
+    sendSuccess(res, {
+      entries,
+      summary: {
+        totalCredit,
+        totalDebit,
+        closingBalance: totalCredit - totalDebit,
+        count: entries.length
+      }
+    }, 'Entries report retrieved successfully');
   } catch (error) {
     next(error);
   }

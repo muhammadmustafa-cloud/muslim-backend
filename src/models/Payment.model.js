@@ -96,6 +96,12 @@ const paymentSchema = new mongoose.Schema(
       trim: true,
       maxlength: [1000, 'Notes cannot be more than 1000 characters']
     },
+    source: {
+      type: String,
+      enum: ['manual', 'daily_cash_memo'],
+      default: 'manual',
+      trim: true
+    },
     createdBy: {
       type: mongoose.Schema.Types.ObjectId,
       ref: 'User',

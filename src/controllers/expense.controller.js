@@ -1,6 +1,7 @@
 import Expense from '../models/Expense.model.js';
 import { sendSuccess, sendPaginated } from '../utils/response.js';
 import { NotFoundError } from '../utils/errors.js';
+import { syncExpenseToPaymentAndMemo } from '../services/dailyCashMemoSync.service.js';
 
 /**
  * Get all expenses with pagination
@@ -30,7 +31,6 @@ export const getExpenses = async (req, res, next) => {
     }
 
     // Get expenses
-    console.log('Fetching expenses with query:', query);
     const expenses = await Expense.find(query)
       .sort({ date: -1, createdAt: -1 })
       .skip(skip)
@@ -40,7 +40,6 @@ export const getExpenses = async (req, res, next) => {
       .populate('createdBy', 'name email')
       .populate('updatedBy', 'name email');
 
-    console.log('Found expenses:', expenses.length, 'for query:', query);
     const total = await Expense.countDocuments(query);
 
     // Calculate total amount
@@ -93,6 +92,15 @@ export const createExpense = async (req, res, next) => {
     };
 
     const expense = await Expense.create(expenseData);
+
+    // Create Payment and add to Daily Cash Memo so same amount appears everywhere
+    try {
+      await syncExpenseToPaymentAndMemo(expense, req.user.id);
+    } catch (syncErr) {
+      await expense.deleteOne();
+      throw syncErr;
+    }
+
     await expense.populate('mazdoor', 'name phone');
     await expense.populate('supplier', 'name phone');
     await expense.populate('createdBy', 'name email');

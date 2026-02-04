@@ -24,8 +24,8 @@ export const errorHandler = (err, req, res, next) => {
     error = new AppError(message, 409);
   }
 
-  // Mongoose validation error
-  if (err.name === 'ValidationError') {
+  // Mongoose validation error (has .errors); custom ValidationError has no .errors
+  if (err.name === 'ValidationError' && err.errors) {
     const message = Object.values(err.errors).map(val => val.message).join(', ');
     error = new AppError(message, 400);
   }

@@ -44,7 +44,8 @@ export const EXPENSE_CATEGORIES = {
   MAINTENANCE: 'maintenance',
   RAW_MATERIAL: 'raw_material',
   PACKAGING: 'packaging',
-  OTHER: 'other'
+  OTHER: 'other',
+  SUPPLIER_PAYMENT: 'supplier_payment'
 };
 
 // Payment status

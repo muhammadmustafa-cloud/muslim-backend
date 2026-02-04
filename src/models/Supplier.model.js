@@ -26,6 +26,10 @@ const supplierSchema = new mongoose.Schema(
         message: 'Please provide a valid phone number'
       }
     },
+    currentBalance: {
+      type: Number,
+      default: 0
+    },
     isActive: {
       type: Boolean,
       default: true

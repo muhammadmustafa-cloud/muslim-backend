@@ -29,6 +29,12 @@ const cashEntrySchema = new mongoose.Schema({
     enum: ['mazdoor', 'electricity', 'rent', 'transport', 'raw_material', 'maintenance', 'other', 'customer_payment', 'supplier_payment'],
     trim: true
   },
+  // For credit entries - receipt type (where money came from)
+  receiptType: {
+    type: String,
+    enum: ['customer_payment', 'sale', 'other_income', 'general'],
+    trim: true
+  },
   // Reference to mazdoor if entry is related to mazdoor
   mazdoor: {
     type: mongoose.Schema.Types.ObjectId,

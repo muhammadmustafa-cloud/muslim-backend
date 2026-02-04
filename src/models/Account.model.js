@@ -28,6 +28,10 @@ const accountSchema = new mongoose.Schema(
       type: Boolean,
       default: false
     },
+    bank: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'Bank'
+    },
     bankDetails: {
       bankName: {
         type: String,
@@ -86,6 +90,7 @@ accountSchema.index({ code: 1 });
 accountSchema.index({ type: 1 });
 accountSchema.index({ isCashAccount: 1 });
 accountSchema.index({ isBankAccount: 1 });
+accountSchema.index({ bank: 1 });
 accountSchema.index({ isActive: 1 });
 accountSchema.index({ createdBy: 1 });
 accountSchema.index({ createdAt: -1 });

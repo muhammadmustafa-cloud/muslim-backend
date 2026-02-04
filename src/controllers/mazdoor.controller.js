@@ -18,8 +18,7 @@ export const getMazdoors = async (req, res, next) => {
     if (search) {
       query.$or = [
         { name: { $regex: search, $options: 'i' } },
-        { phone: { $regex: search, $options: 'i' } },
-        { cnic: { $regex: search, $options: 'i' } }
+        { phone: { $regex: search, $options: 'i' } }
       ];
     }
     if (isActive !== undefined) {
