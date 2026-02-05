@@ -26,7 +26,7 @@ export const createAccountValidator = [
     .isBoolean().withMessage('isBankAccount must be a boolean'),
 
   body('bank')
-    .optional()
+    .optional({ values: 'falsy' })
     .isMongoId().withMessage('Invalid bank ID'),
 
   body('openingBalance')
@@ -65,7 +65,7 @@ export const updateAccountValidator = [
     .isLength({ max: 200 }).withMessage('Account name cannot be more than 200 characters'),
 
   body('bank')
-    .optional()
+    .optional({ values: 'falsy' })
     .isMongoId().withMessage('Invalid bank ID'),
 
   body('openingBalance')

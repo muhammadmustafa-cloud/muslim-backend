@@ -161,19 +161,24 @@ export const getPreviousBalance = async (req, res, next) => {
  */
 export const createDailyCashMemo = async (req, res, next) => {
   try {
-    const { date, creditEntries, debitEntries, previousBalance, notes } = req.body;
+    const { date, creditEntries, debitEntries, previousBalance, openingBalance, notes } = req.body;
+    const prevBal = Number(previousBalance) || Number(openingBalance) || 0;
 
-    // Check if memo already exists for this date
-    const existingMemo = await DailyCashMemo.findOne({ date: new Date(date) });
+    const targetDate = new Date(date);
+    targetDate.setHours(0, 0, 0, 0);
+    const endDate = new Date(targetDate);
+    endDate.setHours(23, 59, 59, 999);
+    const existingMemo = await DailyCashMemo.findOne({ date: { $gte: targetDate, $lte: endDate } });
     if (existingMemo) {
       throw new ValidationError('Daily cash memo already exists for this date');
     }
 
     const memoData = {
-      date: new Date(date),
+      date: targetDate,
       creditEntries: creditEntries || [],
       debitEntries: debitEntries || [],
-      previousBalance: previousBalance || 0,
+      previousBalance: prevBal,
+      openingBalance: prevBal,
       notes: notes || '',
       createdBy: req.user.id
     };
